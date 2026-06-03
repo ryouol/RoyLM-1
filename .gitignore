@@ -6,13 +6,13 @@ __pycache__/
 .venv/
 venv/
 
-# Generated data
-data/input.txt
-data/train.bin
-data/val.bin
-data/meta.pkl
+# Generated data / tokenizer artifacts
+data/tinystories/*.txt
+data/tinystories/*.bin
+data/tinystories/tokenizer.json
+data/tinystories/meta.json
 
-# Model outputs
+# Model outputs / checkpoints
 *.pt
 viz_*.png
 
