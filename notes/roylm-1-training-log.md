@@ -39,6 +39,25 @@ watch -- lower is better. As a reference point, a uniform random guess over a
                still falling steadily at iter 2000, so a longer run (10k+) should
                keep improving. This was a quick starter; not tuned.
 
+### Run 2026-06-04 - long run (30k iters)
+- Data:        same corpus (50.18M train / 4.86M val tokens; vocab 4096)
+- Model:       block=256, n_embd=256, n_layer=6, n_head=8, dropout=0.1  (5.85M params)
+- Training:    batch=16, lr=3e-4 (constant), max_iters=30000, device=mps
+- Wall clock:  ~50 min (3003 s)
+- Tokens seen: ~123M  (~2.45 epochs over the train split)
+- Best val:    loss 1.860  /  perplexity 6.43   (starter was 16.59)
+- Val ppl curve: 16.96 (2k) -> 8.15 (10k) -> 7.04 (19k) -> 6.91 (20k) -> 6.43 (30k)
+- Sample (prompt "Once upon a time, there was a dragon who", temp 0.8, top_p 0.95):
+    "...a dragon who lived in a cave... he remembered that he needed to be brave...
+     'I am here to protect you. I will protect you from danger!'"
+- Notes:       Big step up from the starter: real dialogue and a beginning/middle/
+               end. Returns are decelerating under a constant LR (8.15 -> 6.91 ->
+               6.43 across the last 20k) but val was still creeping down, and the
+               train/val gap stayed small (~0.03 loss) -- no real overfitting yet.
+               Main remaining quirk: repetition loops at low temperature / top-k
+               ("I wanted to make a car too..."); top-p sampling helps. The clear
+               next lever is a cosine LR decay -> RoyLM-2.
+
 ## Ideas to try
 
 - Longer training (more `max_iters`) and watch when val perplexity stops falling.
