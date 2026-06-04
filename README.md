@@ -56,8 +56,9 @@ python data/tinystories/prepare.py
 # 4. Train the model  ->  checkpoints/roylm-1.pt
 python -m roylm.train
 
-# 5. Generate text
+# 5. Generate text -- one-shot, or play interactively
 python -m roylm.sample --prompt "Once upon a time" --tokens 300
+python -m roylm.prompt       # type prompts in a loop; tweak settings live
 ```
 
 `train.py` accepts overrides, e.g. `python -m roylm.train --max-iters 2000
@@ -94,6 +95,7 @@ roylm/
   model.py           decoder-only GPT (same architecture as RoyLM-0)
   train.py           training loop: perplexity, periodic samples, checkpointing
   sample.py          generation with temperature / top-k / top-p
+  prompt.py          interactive REPL: type prompts, tweak /temp /topk /topp live
 data/tinystories/
   download.py        fetch TinyStories text (with a size cap for laptops)
   train_tokenizer.py train the BPE tokenizer
