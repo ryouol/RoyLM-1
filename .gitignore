@@ -14,7 +14,11 @@ data/tinystories/meta.json
 
 # Model outputs / checkpoints
 *.pt
+# ignore stray viz files but keep the three the README renders
 viz_*.png
+!viz_nexttoken.png
+!viz_attention.png
+!viz_embeddings.png
 
 # Editor/IDE
 .vscode/

@@ -72,6 +72,12 @@ class BPETokenizer:
         """list[int] of token ids -> text (special tokens dropped)."""
         return self._tok.decode(list(ids))
 
+    def id_to_token(self, i):
+        """Raw token string for an id, with the byte-level space marker (Ġ)
+        shown as a normal space. Handy for plots and inspection."""
+        t = self._tok.id_to_token(i)
+        return t.replace("Ġ", " ") if t else t
+
     @property
     def vocab_size(self) -> int:
         return self._tok.get_vocab_size()

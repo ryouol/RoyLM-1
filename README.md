@@ -13,21 +13,77 @@ RoyLM-0 (character-level)   "hello world" -> h e l l o _ w o r l d   (11 tokens)
 RoyLM-1 (subword/token)     "hello world" -> ["hello", " world"]      (2 tokens)
 ```
 
-## What changed from RoyLM-0
+## Visualizations
 
-| | RoyLM-0 | RoyLM-1 |
-| --- | --- | --- |
-| Tokenizer | character set (~65) | trained byte-level BPE |
-| Vocab size | ~65 | 4,096 |
-| Dataset | Tiny Shakespeare | TinyStories |
-| Output logits | `[B, T, 65]` | `[B, T, 4096]` |
-| Context length | 256 | 256 |
-| `n_embd` / `n_layer` / `n_head` | 384 / 6 / 6 | 256 / 6 / 8 |
-| Checkpoint loading | `weights_only=False` | `weights_only=True` (config stored as plain dict) |
+These plots were generated from the trained checkpoint with
+`python -m roylm.visualize` using the prompt `Once upon a time, there`.
 
-The transformer itself (`roylm/model.py`) is the same architecture as RoyLM-0.
-The real changes are the tokenizer, the dataset, and treating the tokenizer as
-a trained, saved, shipped part of the pipeline.
+![Next-token probabilities](viz_nexttoken.png)
+
+After `Once upon a time, there` the model puts ~98% of its probability on
+` was` — it has learned the grammar of the construction.
+
+![Attention heads](viz_attention.png)
+
+![Learned token embeddings projected to 2D](viz_embeddings.png)
+
+The embedding plot shows the 4,096 learned token vectors projected to 2D. Common
+words (`they`, `her`, `mom`, `loved`, `friends`) spread out and cluster by role,
+while rarely-seen tokens stay bunched together near their initialization.
+
+## Model Stats
+
+### Architecture
+
+| Stat | Value |
+| --- | --- |
+| Type | Decoder-only transformer (GPT) |
+| Parameters | **5.85M** |
+| Layers (`n_layer`) | 6 |
+| Attention heads (`n_head`) | 8 |
+| Embedding width (`n_embd`) | 256 |
+| Head size | 32 |
+| Context length (`block_size`) | 256 tokens |
+| Vocabulary | 4,096 (byte-level BPE) |
+| Dropout | 0.1 |
+| Checkpoint size | 23.8 MiB (`roylm-1.pt`, fp32) |
+| Weight tying | input embedding = output head |
+
+The output layer now spans 4,096 possible next tokens (`[B, T, 4096]` logits)
+instead of RoyLM-0's ~65 characters. This is the real change: RoyLM-1 predicts
+subword tokens, the way modern LLMs do.
+
+### Training Setup
+
+| Stat | Value |
+| --- | --- |
+| Dataset | TinyStories (200 MB slice) |
+| Train split | 50.18M tokens |
+| Validation split | 4.86M tokens |
+| Batch size | 16 sequences |
+| Sequence length | 256 tokens |
+| Steps (`max_iters`) | 30,000 |
+| Tokens seen | **123M** (~2.45 passes over the train split) |
+| Optimizer | AdamW |
+| Learning rate | 3e-4 (constant) |
+| Gradient clipping | 1.0 |
+| Hardware | Apple Silicon GPU (MPS) |
+| Wall-clock training time | ~50 minutes |
+
+With a constant learning rate, validation loss fell quickly and then flattened
+(see `notes/roylm-1-training-log.md`) — the diminishing returns that motivate a
+learning-rate schedule in RoyLM-2.
+
+### Validation Benchmark
+
+Measured from the trained `roylm-1.pt` checkpoint. Perplexity is `e^loss`; a
+uniform guess over the 4,096-token vocabulary has perplexity 4,096.
+
+| Metric | Random baseline | RoyLM-1 |
+| --- | ---: | ---: |
+| Cross-entropy loss, nats | 8.32 | **1.86** |
+| Perplexity (`e^loss`) | 4096 | **6.43** |
+| Bits per token | 12.0 | **2.68** |
 
 ## Setup
 
@@ -37,88 +93,56 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## The pipeline
+## Run
 
-Run the data pipeline once, then train and sample. All commands are run from
-the repo root.
+Run from the repo root. Prepare the dataset (download → train tokenizer → encode):
 
 ```bash
-# 1. Download TinyStories text (defaults to a ~200 MB train slice; use
-#    --max-mb 0 for the full ~2 GB, or --max-mb 5 for a quick experiment)
 python data/tinystories/download.py
-
-# 2. Train the byte-level BPE tokenizer  ->  data/tinystories/tokenizer.json
 python data/tinystories/train_tokenizer.py
-
-# 3. Encode text into token ids  ->  train.bin, val.bin, meta.json
 python data/tinystories/prepare.py
+```
 
-# 4. Train the model  ->  checkpoints/roylm-1.pt
+Train the model:
+
+```bash
 python -m roylm.train
+```
 
-# 5. Generate text -- one-shot, or play interactively
+Generate a sample:
+
+```bash
 python -m roylm.sample --prompt "Once upon a time" --tokens 300
-python -m roylm.prompt       # type prompts in a loop; tweak settings live
 ```
 
-`train.py` accepts overrides, e.g. `python -m roylm.train --max-iters 2000
---batch-size 8`. `sample.py` supports `--temperature`, `--top-k`, `--top-p`,
-and `--num-samples`.
+Try an interactive prompt:
 
-## Default configuration
-
-Set in `roylm/config.py` (the single source of truth for paths and
-hyperparameters):
-
-| Stat | Value |
-| --- | --- |
-| Vocab size | 4,096 (byte-level BPE) |
-| Context length (`block_size`) | 256 tokens |
-| Embedding width (`n_embd`) | 256 |
-| Layers (`n_layer`) | 6 |
-| Attention heads (`n_head`) | 8 |
-| Dropout | 0.1 |
-| Batch size | 16 |
-| Learning rate | 3e-4 (constant; AdamW) |
-| Gradient clipping | 1.0 |
-| Iterations | 10,000 |
-
-Training reports validation **loss** and **perplexity** (`e^loss`) at every
-eval interval and prints a short generated sample periodically.
-
-## Project layout
-
-```
-roylm/
-  config.py          paths + model/training hyperparameters (single source of truth)
-  tokenizer_bpe.py   byte-level BPE wrapper: train / load / save / encode / decode
-  model.py           decoder-only GPT (same architecture as RoyLM-0)
-  train.py           training loop: perplexity, periodic samples, checkpointing
-  sample.py          generation with temperature / top-k / top-p
-  prompt.py          interactive REPL: type prompts, tweak /temp /topk /topp live
-data/tinystories/
-  download.py        fetch TinyStories text (with a size cap for laptops)
-  train_tokenizer.py train the BPE tokenizer
-  prepare.py         encode text -> train.bin / val.bin / meta.json
-checkpoints/         trained weights (roylm-1.pt)
-notes/               tokenizer notes + training log
+```bash
+python -m roylm.prompt
 ```
 
-Downloaded text, tokenizer, encoded `.bin` files, and checkpoints are generated
-artifacts and are ignored by Git (see `.gitignore`).
+Create the diagnostic plots:
 
-## Status
+```bash
+python -m roylm.visualize
+```
 
-Code complete and smoke-tested end to end (download -> tokenizer -> encode ->
-train -> sample). No trained checkpoint is committed; run the pipeline above to
-produce `checkpoints/roylm-1.pt`. See `notes/roylm-1-training-log.md` to record
-runs.
+## Project Layout
 
-## RoyLM roadmap
+- `roylm/config.py` — paths and model/training hyperparameters (one source of truth).
+- `roylm/tokenizer_bpe.py` — byte-level BPE wrapper (train / load / encode / decode).
+- `roylm/model.py` — the decoder-only transformer.
+- `roylm/train.py` — trains the model and saves `checkpoints/roylm-1.pt`.
+- `roylm/sample.py` — generates text from a checkpoint.
+- `roylm/prompt.py` — interactive text-continuation REPL.
+- `roylm/visualize.py` — writes the attention, embedding, and next-token plots.
+- `data/tinystories/` — `download.py`, `train_tokenizer.py`, `prepare.py`.
 
-- **RoyLM-0** - character-level GPT on Tiny Shakespeare. Understand transformer internals.
-- **RoyLM-1** - BPE token-level GPT on TinyStories. Understand the real tokenizer + training pipeline. *(this repo)*
-- **RoyLM-2** - larger dataset + better training loop (LR schedules, eval, checkpointing).
-- **RoyLM-3** - instruction tuning: turn the base model into a basic assistant.
-- **RoyLM-4** - RAG + tool use.
-- **RoyLM-5** - inference optimization (KV cache, quantization, Metal/C++).
+Generated data, the tokenizer, checkpoints, and virtual environments are ignored
+by Git. The visualization PNGs are kept in the repo so they render on GitHub.
+
+## Next
+
+RoyLM-2 turns this into a real pretraining pipeline: a larger model, a learning-
+rate schedule, gradient accumulation, checkpoint resume, CSV experiment logs, and
+evaluation tooling.
